@@ -14,18 +14,13 @@ class Dataset:
     - Resampling to a consistent spacing
     - Cropping or padding to a consistent resolution
     - Normalizing voxel intensities
-    - Splitting the volume into blocks
-    - Applying a projector to simulate 2D projections
     
     Attributes:
         _data_list (list): List of data items, each containing 'name' and 'path' keys.
         _spacing (np.ndarray): Desired voxel spacing for resampling.
         _resolution (np.ndarray): Desired image resolution after cropping/padding.
         _value_range (np.ndarray): Value range for normalization (e.g., [-1000, 400] for CT HU values).
-        _block_size (np.ndarray): Size of blocks for splitting the volume.
-        _block_info (dict or None): Cached block information.
         _return_raw (bool): If True, returns raw data without processing.
-        _projector (callable or None): Projector function to simulate 2D projections.
     """
     def __init__(self, config):
         """
@@ -36,7 +31,6 @@ class Dataset:
                 - 'spacing' (list or array): Desired voxel spacing for resampling.
                 - 'resolution' (list or array): Desired image resolution after cropping/padding.
                 - 'value_range' (list or array): Value range for normalization (e.g., [-1000, 400] for CT HU values).
-                - 'block_size' (list or array): Size of blocks for splitting the volume (optional).
         """
         self._data_list = []
         self._spacing = np.array(config['spacing'])
@@ -80,84 +74,6 @@ class Dataset:
         self._return_raw = flag
         
         return self
-    
-    
-    def init_projector(self, projector):
-        """
-        Initialize a projector to simulate 2D projections for all data items.
-        
-        Args:
-            projector (callable): A projector function that takes an image and returns projections.
-        
-        Returns:
-            Dataset: Returns self to allow method chaining.
-        """
-        self._projector = projector
-        
-        return self
-    
-    
-    def _generate_blocks(self):
-        """
-        Generate block coordinates and indices for splitting the volume into smaller blocks.
-        
-        Returns:
-            dict: A dictionary containing block coordinates and lists.
-        """
-        if self._block_info is not None:
-            return self._block_info
-        
-        nx, ny, nz = self._block_size
-        # Ensure that the resolution is divisible by the block size
-        assert (self._resolution % self._block_size).sum() == 0, \
-            f'Resolution {self._resolution} is not divisible by block_size {self._block_size}'
-        
-        offsets = (self._resolution / self._block_size).astype(int)
-        base = np.mgrid[:nx, :ny, :nz]  # Create a grid of indices [3, nx, ny, nz]
-        base = base.reshape(3, -1).transpose(1, 0)  # Reshape to [*, 3]
-        base = base * offsets  # Scale base indices by offsets
-        
-        block_list = []
-        for x in range(offsets[0]):
-            for y in range(offsets[1]):
-                for z in range(offsets[2]):
-                    # Shift blocks by the offset
-                    block = base + np.array([x, y, z])
-                    block_list.append(block)
-        
-        blocks_coords = np.stack(block_list, axis=0)  # [N, *, 3]
-        # Normalize coordinates to [0, 1]
-        blocks_coords = blocks_coords / (self._resolution - 1)
-        blocks_coords = blocks_coords.astype(np.float32)
-        
-        self._block_info = {
-            'coords': blocks_coords,
-            'list': block_list
-        }
-        
-        return self._block_info
-    
-    
-    def _convert_blocks(self, data):
-        """
-        Split the image data into blocks and add block information to the data dictionary.
-        
-        Args:
-            data (dict): Data dictionary containing 'image'.
-        
-        Returns:
-            dict: Updated data dictionary with 'blocks_vals' and 'blocks_coords'.
-        """
-        block_info = self._generate_blocks()
-        # Extract block values from the image
-        blocks_vals = [
-            data['image'][b[:, 0], b[:, 1], b[:, 2]]
-            for b in block_info['list']
-        ]
-        data['blocks_vals'] = blocks_vals
-        data['blocks_coords'] = block_info['coords']
-        
-        return data
     
     
     def _process(self, data):
@@ -344,11 +260,6 @@ class Dataset:
         data = self._load_raw(item)
         if not self._return_raw:
             data = self._process(data)
-            data = self._convert_blocks(data)
-            if self._projector is not None:
-                # Apply the projector to simulate 2D projections
-                projs = self._projector(data['image'])
-                data.update(projs)  # Add 'projs' and 'angles' to data
         
         return data
     

@@ -9,7 +9,6 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from dataset import Dataset_LUNA16
 from base.utils import sitk_save
-from base.projector import Projector
 from base.saver import Saver, PATH_DICT
 
 
@@ -59,16 +58,11 @@ class Saver_LUNA16(Saver):
 
 if __name__ == '__main__':
     
-    parser = argparse.ArgumentParser(description='Process LUNA16 dataset')
-    
-    parser.add_argument('-n', '--name', type=str, default=None, help='Name of a specific patient to process')
-    parser.add_argument('-r', '--root_dir', type=str, default='./', help='Root Directory')
-    parser.add_argument('-d', '--data_dir', type=str, default='raw', help='Name of directory with subsets of Luna')
-    
+    parser = argparse.ArgumentParser(description='PSO-GAN')
+    parser.add_argument('-n', '--name', type=str, default=None)
     args = parser.parse_args()
     
-    root_dir = args.root_dir
-    
+    root_dir = './'
     processed_dir = os.path.join(root_dir, 'processed/')
     config_path = os.path.join(root_dir, 'config.yaml')
     
@@ -77,28 +71,18 @@ if __name__ == '__main__':
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
     
-    # Ensure that projector and dataset configurations are consistent
-    # 1. config.projector.nVoxel == config.dataset.resolution
-    # 2. config.projector.dVoxel == config.dataset.spacing
-    
     dataset = Dataset_LUNA16(
-        root_dir=root_dir,
-        config=config['dataset'],
-        data_dir= args.data_dir
-    ).return_nodule_mask(True).init_projector(
-        Projector(config=config['projector'])
-    )
+        root_dir=root_dir, 
+        config=config['dataset']
+    ).return_nodule_mask(True)
     
     if args.name is not None:
-        # Process a specific patient (useful for debugging)
         dataset.filter_names([args.name])
         saver.save(dataset[0])
     else:
-        # Process all patients in the dataset
         for data in tqdm(dataset, ncols=50):
             saver.save(data)
     
-    # Save meta information and data splits
     info = {}
     info['dataset_config'] = config_path
     info.update(saver.path_dict)
